@@ -48,6 +48,11 @@ module.exports = async (req, res) => {
   bot.on('text', async (ctx) => {
     const text = ctx.message.text;
     
+    // Ignore Telegram /start command
+    if (text.startsWith('/start')) {
+      return ctx.reply("👋 Welcome to the Budget Tracker! Send me a message like 'Spent $10 on coffee' to log an expense.");
+    }
+    
     try {
       // Default to Mountain Time based on your context
       const timezone = process.env.TIMEZONE || 'America/Denver'; 
