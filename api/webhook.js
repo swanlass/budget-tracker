@@ -27,6 +27,15 @@ async function getServices() {
   return { bot, model, doc, AUTHORIZED_USERS };
 }
 
+// Helper for robust JSON parsing
+const parseAIJSON = (text) => {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start === -1 || end === -1) throw new Error("AI failed to return valid JSON");
+  const jsonStr = text.substring(start, end + 1);
+  return JSON.parse(jsonStr);
+};
+
 // Vercel Serverless Function Handler
 module.exports = async (req, res) => {
   if (req.method === 'GET') {
@@ -75,15 +84,6 @@ module.exports = async (req, res) => {
       const timezone = process.env.TIMEZONE || 'America/Denver'; 
       const dateInfo = new Date().toLocaleDateString('en-CA', { timeZone: timezone });
       
-      // Helper for robust JSON parsing
-      const parseAIJSON = (text) => {
-        const start = text.indexOf('{');
-        const end = text.lastIndexOf('}');
-        if (start === -1 || end === -1) throw new Error("AI failed to return valid JSON");
-        const jsonStr = text.substring(start, end + 1);
-        return JSON.parse(jsonStr);
-      };
-
       // 1. Classify Intent and Extract Data in ONE PASS
       const intentPrompt = `Task: Process user input.
       Current Date: ${dateInfo}
