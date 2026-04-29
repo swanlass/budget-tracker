@@ -143,15 +143,24 @@ module.exports = async (req, res) => {
         // PRE-FILTER: Only show the target timeframe to the AI
         const targetRows = allRows.filter(r => {
           const d = new Date(r.get('Date'));
-          // Default to current month if AI didn't specify a different one
           return d.getMonth() === (data.month - 1) && d.getFullYear() === data.year;
         });
 
-        const transactionHistory = targetRows.map(r => `Date: ${r.get('Date')}, Person: ${r.get('User')}, Amount: ${r.get('Amount')}, Category: ${r.get('Category')}, Desc: ${r.get('Description')}`).join('\n');
+        let calculatedTotal = 0;
+        targetRows.forEach(r => {
+          calculatedTotal += parseFloat(r.get('Amount') || 0);
+        });
 
-        const analysisPrompt = `Context: Budget $${budget}, History for Period: ${transactionHistory}. 
+        const analysisPrompt = `Context: 
+        Target Period: ${new Date(data.year, data.month - 1).toLocaleString('default', { month: 'long' })} ${data.year}
+        Budget: $${budget}
+        TOTAL SPENT CALCULATED: $${calculatedTotal.toFixed(2)}
+
         Question: "${text}"
-        RULES: Only provide a total summary (Spent vs Budget). DO NOT list items. Be concise.`;
+        
+        RULES:
+        - You MUST use the TOTAL SPENT CALCULATED ($${calculatedTotal.toFixed(2)}) in your response.
+        - Be extremely concise. Tell the user the total spent and remaining budget for the period.`;
 
         const analysisResult = await model.generateContent([analysisPrompt]);
         return ctx.reply(analysisResult.response.text(), { parse_mode: 'Markdown' });
