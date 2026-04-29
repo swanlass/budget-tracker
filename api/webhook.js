@@ -21,7 +21,7 @@ async function getServices() {
   await doc.loadInfo();
 
   const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({ model: "gemini-3.1-flash-lite-preview" });
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
   const bot = new Telegraf(TELEGRAM_TOKEN);
 
   return { bot, model, doc, AUTHORIZED_USERS };
