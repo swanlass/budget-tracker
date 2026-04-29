@@ -48,50 +48,52 @@ module.exports = async (req, res) => {
   bot.on('text', async (ctx) => {
     const text = ctx.message.text;
     
-    // Ignore Telegram /start command
     if (text.startsWith('/start')) {
-      return ctx.reply("👋 Welcome to the Budget Tracker! Send me a message like 'Spent $10 on coffee' to log an expense.");
+      return ctx.reply("👋 Welcome to the Budget Tracker! Log expenses like 'lunch $15', ask 'how much left?', or set your limit with 'make the budget 5000'.");
     }
-    
+
     try {
-      // Default to Mountain Time based on your context
       const timezone = process.env.TIMEZONE || 'America/Denver'; 
-      const dateInfo = new Date().toLocaleDateString('en-CA', { timeZone: timezone }); // Returns YYYY-MM-DD
+      const dateInfo = new Date().toLocaleDateString('en-CA', { timeZone: timezone });
       
-      const intentPrompt = `Task: Classify user intent and extract data.
-      Current Date: ${dateInfo}
-      Input: "${text}"
-      
-      Intents:
-      - TRANSACTION: Logging an expense (amount, category, date, description).
-      - BUDGET_UPDATE: Setting a new monthly budget (amount).
-      - QUERY: Asking about spending/budget (month, year).
-      
-      Return ONLY JSON: {"intent": "TRANSACTION"|"BUDGET_UPDATE"|"QUERY", "data": {relevant fields}}.`;
+      // 1. Classify Intent
+      const intentPrompt = `Task: Classify intent. Date: ${dateInfo}. Input: "${text}"
+      Intents: TRANSACTION, BUDGET_UPDATE, QUERY.
+      Return ONLY JSON: {"intent": "..."}.`;
       
       const result = await model.generateContent([intentPrompt]);
-      const responseText = result.response.text().replace(/```json|```/g, '').trim();
-      const { intent, data } = JSON.parse(responseText);
+      const { intent } = JSON.parse(result.response.text().replace(/```json|```/g, '').trim());
 
       await doc.loadInfo();
 
-      // 2. Handle Intent
+      // 2. Get Valid Categories from "Categories" tab
+      const catSheet = doc.sheetsByTitle['Categories'];
+      let categoriesList = 'General';
+      if (catSheet) {
+        const catRows = await catSheet.getRows();
+        const cats = catRows.map(r => r.get('Categories')).filter(c => c);
+        if (cats.length > 0) categoriesList = cats.join(', ');
+      }
+
+      // 3. Handle Intent
       if (intent === 'BUDGET_UPDATE') {
+        const budgetPrompt = `Extract budget amount from: "${text}". Return ONLY JSON: {"amount": number}.`;
+        const bResult = await model.generateContent([budgetPrompt]);
+        const { amount } = JSON.parse(bResult.response.text().replace(/```json|```/g, '').trim());
+
         let configSheet = doc.sheetsByTitle['Config'] || await doc.addSheet({ title: 'Config', headerValues: ['Setting', 'Value'] });
         const rows = await configSheet.getRows();
-        const budgetRow = rows.find(r => r.get('Setting') === 'Monthly Budget');
-        
+        let budgetRow = rows.find(r => r.get('Setting') === 'Monthly Budget');
         if (budgetRow) {
-          budgetRow.set('Value', data.amount);
+          budgetRow.set('Value', amount);
           await budgetRow.save();
         } else {
-          await configSheet.addRow(['Monthly Budget', data.amount]);
+          await configSheet.addRow(['Monthly Budget', amount]);
         }
-        return ctx.reply(`⚙️ *Monthly Budget updated to: $${data.amount}*`, { parse_mode: 'Markdown' });
+        return ctx.reply(`⚙️ *Monthly Budget updated to: $${amount}*`, { parse_mode: 'Markdown' });
       }
 
       if (intent === 'QUERY') {
-        // A. Get Budget from Config
         const configSheet = doc.sheetsByTitle['Config'];
         let budget = 8000;
         if (configSheet) {
@@ -100,109 +102,90 @@ module.exports = async (req, res) => {
           if (budgetRow) budget = parseFloat(budgetRow.get('Value'));
         }
 
-        // B. Get ALL Transactions
         const sheet = doc.sheetsByTitle['Transactions'];
         const rows = await sheet.getRows();
-        const transactionHistory = rows.map(r => {
-          return `Date: ${r.get('Date')}, User: ${r.get('User')}, Amount: ${r.get('Amount')}, Category: ${r.get('Category')}, Desc: ${r.get('Description')}`;
-        }).join('\n');
+        const transactionHistory = rows.map(r => `Date: ${r.get('Date')}, Person: ${r.get('User')}, Amount: ${r.get('Amount')}, Category: ${r.get('Category')}, Desc: ${r.get('Description')}`).join('\n');
 
-        // C. Ask Gemini to analyze the data
-        const analysisPrompt = `Context:
-        Current Budget: $${budget}
-        Today's Date: ${new Date().toISOString().split('T')[0]} (Current Month is ${new Date().toLocaleString('default', { month: 'long' })})
-        Transaction History:
-        ${transactionHistory}
-
-        User Question: "${text}"
-        
-        CRITICAL INSTRUCTIONS:
-        1. If the user DOES NOT specify a month or year in their question, you MUST ONLY use transactions from the current month (${new Date().toLocaleString('default', { month: 'long' })} ${new Date().getFullYear()}) in your calculations and response.
-        2. If they ask for a report or "how much left", provide a summary of the current month vs budget.
-        3. Be concise and use Markdown formatting.`;
-
+        const analysisPrompt = `Context: Budget $${budget}, History: ${transactionHistory}. Question: "${text}". Return Markdown answer. Default to current month (${dateInfo}).`;
         const analysisResult = await model.generateContent([analysisPrompt]);
         return ctx.reply(analysisResult.response.text(), { parse_mode: 'Markdown' });
       }
 
       if (intent === 'TRANSACTION') {
-        const finalDate = data.date && data.date !== 'YYYY-MM-DD' ? data.date : dateInfo;
+        const transPrompt = `Input: "${text}". Categories: [${categoriesList}]. Extract JSON: {amount, category, date, description}. Use closest Category.`;
+        const tResult = await model.generateContent([transPrompt]);
+        const tData = JSON.parse(tResult.response.text().replace(/```json|```/g, '').trim());
+        
+        const finalDate = tData.date && tData.date.includes('-') ? tData.date : dateInfo;
         let sheet = doc.sheetsByTitle['Transactions'] || await doc.addSheet({ title: 'Transactions', headerValues: ['Date', 'User', 'Amount', 'Category', 'Description'] });
-        await sheet.addRow([finalDate, ctx.from.first_name, data.amount, data.category, data.description || ""]);
-        return ctx.reply(`✅ Logged: $${data.amount} for ${data.category}`);
+        
+        await sheet.addRow({
+          'Date': finalDate,
+          'User': ctx.from.first_name,
+          'Amount': tData.amount,
+          'Category': tData.category,
+          'Description': tData.description || ""
+        });
+        return ctx.reply(`✅ Logged: $${tData.amount} for ${tData.category}`);
+      }
+    } catch (e) {
+      await ctx.reply(`❌ Error: ${e.message}`);
+    }
+  });
+
+  // Handle Voice/Photo
+  const handleMultimodal = async (ctx, mimeType, base64Data) => {
+    try {
+      const timezone = process.env.TIMEZONE || 'America/Denver';
+      const dateInfo = new Date().toLocaleDateString('en-CA', { timeZone: timezone });
+      
+      const catSheet = doc.sheetsByTitle['Categories'];
+      let categoriesList = 'General';
+      if (catSheet) {
+        const catRows = await catSheet.getRows();
+        const cats = catRows.map(r => r.get('Categories')).filter(c => c);
+        if (cats.length > 0) categoriesList = cats.join(', ');
       }
 
+      const result = await model.generateContent([
+        { text: `Extract transaction. Categories: [${categoriesList}]. Return JSON: {amount, category, date, description}. Date: ${dateInfo}.` },
+        { inlineData: { data: base64Data, mimeType } }
+      ]);
+      const tData = JSON.parse(result.response.text().replace(/```json|```/g, '').trim());
+      
+      const finalDate = tData.date && tData.date.includes('-') ? tData.date : dateInfo;
+      let sheet = doc.sheetsByTitle['Transactions'] || await doc.addSheet({ title: 'Transactions', headerValues: ['Date', 'User', 'Amount', 'Category', 'Description'] });
+      await sheet.addRow({
+        'Date': finalDate,
+        'User': ctx.from.first_name,
+        'Amount': tData.amount,
+        'Category': tData.category,
+        'Description': tData.description || ""
+      });
+      await ctx.reply(`✅ Logged: $${tData.amount} for ${tData.category}`);
     } catch (e) {
-      await ctx.reply(`❌ Bot Error: ${e.message}`);
+      await ctx.reply(`❌ Error: ${e.message}`);
     }
-  });
+  };
 
-  // 4. Handle Voice Messages
   bot.on('voice', async (ctx) => {
-    try {
-      const voice = ctx.message.voice;
-      const fileLink = await bot.telegram.getFileLink(voice.file_id);
-      
-      const response = await fetch(fileLink);
-      const buffer = await response.arrayBuffer();
-      const base64Data = Buffer.from(buffer).toString('base64');
-      
-      const logDate = new Date().toISOString().split('T')[0];
-      const result = await model.generateContent([
-        { text: `Extract transaction from audio. Return ONLY JSON: {amount: number, category: string, date: string, description: string}. Use "${logDate}" as the date if no date is mentioned. Format date strictly as YYYY-MM-DD.` },
-        { inlineData: { data: base64Data, mimeType: 'audio/ogg' } }
-      ]);
-
-      const cleanText = result.response.text().replace(/```json|```/g, '').trim();
-      const transaction = JSON.parse(cleanText);
-      const finalDate = transaction.date && transaction.date.includes('-') ? transaction.date : logDate;
-
-      await doc.loadInfo();
-      let sheet = doc.sheetsByTitle['Transactions'] || await doc.addSheet({ title: 'Transactions', headerValues: ['Date', 'User', 'Amount', 'Category', 'Description'] });
-      await sheet.addRow([finalDate, ctx.from.first_name, transaction.amount, transaction.category, transaction.description || ""]);
-      
-      await ctx.reply(`✅ Voice Logged: $${transaction.amount} for ${transaction.category}`);
-    } catch (e) {
-      await ctx.reply(`❌ Voice Error: ${e.message}`);
-    }
+    const fileLink = await bot.telegram.getFileLink(ctx.message.voice.file_id);
+    const response = await fetch(fileLink);
+    const base64Data = Buffer.from(await response.arrayBuffer()).toString('base64');
+    await handleMultimodal(ctx, 'audio/ogg', base64Data);
   });
 
-  // 5. Handle Photos (Receipts)
   bot.on('photo', async (ctx) => {
-    try {
-      const photo = ctx.message.photo[ctx.message.photo.length - 1];
-      const fileLink = await bot.telegram.getFileLink(photo.file_id);
-      
-      const response = await fetch(fileLink);
-      const buffer = await response.arrayBuffer();
-      const base64Data = Buffer.from(buffer).toString('base64');
-      
-      const logDate = new Date().toISOString().split('T')[0];
-      const result = await model.generateContent([
-        { text: `Extract transaction from receipt photo. Return ONLY JSON: {amount: number, category: string, date: string, description: string}. Use "${logDate}" as the date if no date is mentioned. Format date strictly as YYYY-MM-DD.` },
-        { inlineData: { data: base64Data, mimeType: 'image/jpeg' } }
-      ]);
-
-      const cleanText = result.response.text().replace(/```json|```/g, '').trim();
-      const transaction = JSON.parse(cleanText);
-      const finalDate = transaction.date && transaction.date.includes('-') ? transaction.date : logDate;
-
-      await doc.loadInfo();
-      let sheet = doc.sheetsByTitle['Transactions'] || await doc.addSheet({ title: 'Transactions', headerValues: ['Date', 'User', 'Amount', 'Category', 'Description'] });
-      await sheet.addRow([finalDate, ctx.from.first_name, transaction.amount, transaction.category, transaction.description || ""]);
-      
-      await ctx.reply(`✅ Receipt Logged: $${transaction.amount} for ${transaction.category}`);
-    } catch (e) {
-      await ctx.reply(`❌ Photo Error: ${e.message}`);
-    }
+    const fileLink = await bot.telegram.getFileLink(ctx.message.photo[ctx.message.photo.length-1].file_id);
+    const response = await fetch(fileLink);
+    const base64Data = Buffer.from(await response.arrayBuffer()).toString('base64');
+    await handleMultimodal(ctx, 'image/jpeg', base64Data);
   });
 
-  // Handle the Telegram Update
   try {
     await bot.handleUpdate(req.body);
     res.status(200).send('OK');
   } catch (err) {
-    console.error(err);
-    res.status(500).send('Internal Server Error');
+    res.status(500).send('Error');
   }
 };
