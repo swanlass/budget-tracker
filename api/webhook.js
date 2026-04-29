@@ -49,7 +49,10 @@ module.exports = async (req, res) => {
     const text = ctx.message.text;
     
     try {
-      const dateInfo = new Date().toISOString().split('T')[0];
+      // Default to Mountain Time based on your context
+      const timezone = process.env.TIMEZONE || 'America/Denver'; 
+      const dateInfo = new Date().toLocaleDateString('en-CA', { timeZone: timezone }); // Returns YYYY-MM-DD
+      
       const intentPrompt = `Task: Classify user intent and extract data.
       Current Date: ${dateInfo}
       Input: "${text}"
