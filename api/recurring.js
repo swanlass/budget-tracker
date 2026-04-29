@@ -33,14 +33,22 @@ module.exports = async (req, res) => {
     }
 
     const recurringRows = await recurringSheet.getRows();
-    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: process.env.TIMEZONE || 'America/Denver' });
+    
+    const timezone = process.env.TIMEZONE || 'America/Denver';
+    const localDate = new Date(new Date().toLocaleString("en-US", { timeZone: timezone }));
+    const year = localDate.getFullYear();
+    const month = String(localDate.getMonth() + 1).padStart(2, '0');
+    const todayStr = `${year}-${month}-01`;
 
     let count = 0;
     for (const row of recurringRows) {
+      const amountStr = (row.get('Amount') || '0').toString();
+      const cleanAmount = amountStr.replace(/[^0-9.]/g, '');
+      
       await transactionSheet.addRow({
         'Date': todayStr,
         'User': row.get('User') || 'Household',
-        'Amount': row.get('Amount'),
+        'Amount': cleanAmount,
         'Category': row.get('Category') || 'Recurring',
         'Description': row.get('Description') || ''
       });
