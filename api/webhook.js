@@ -94,15 +94,25 @@ module.exports = async (req, res) => {
         const sheet = doc.sheetsByTitle['Transactions'];
         const rows = await sheet.getRows();
         
-        const targetMonth = parseInt(data.month);
-        const targetYear = parseInt(data.year);
+        // Robust Month Parsing
+        const monthMap = { 'january': 1, 'february': 2, 'march': 3, 'april': 4, 'may': 5, 'june': 6, 'july': 7, 'august': 8, 'september': 9, 'october': 10, 'november': 11, 'december': 12 };
+        let targetMonth = parseInt(data.month);
+        if (isNaN(targetMonth) && typeof data.month === 'string') {
+          targetMonth = monthMap[data.month.toLowerCase()];
+        }
+        const targetYear = parseInt(data.year) || new Date().getFullYear();
+        
+        if (!targetMonth || isNaN(targetMonth)) {
+           return ctx.reply(`❌ I couldn't understand which month you are asking about. Please try "March 2026".`);
+        }
         
         let totalSpent = 0;
         rows.forEach(row => {
           const rowDateStr = row.get('Date');
           if (!rowDateStr) return;
           
-          const dateParts = rowDateStr.split('-');
+          // Handle both YYYY-MM-DD and other formats
+          const dateParts = rowDateStr.split(/[-/]/);
           const rowYear = parseInt(dateParts[0]);
           const rowMonth = parseInt(dateParts[1]);
 
