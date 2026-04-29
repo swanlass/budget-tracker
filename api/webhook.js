@@ -56,13 +56,22 @@ module.exports = async (req, res) => {
       const timezone = process.env.TIMEZONE || 'America/Denver'; 
       const dateInfo = new Date().toLocaleDateString('en-CA', { timeZone: timezone });
       
+      // Helper for robust JSON parsing
+      const parseAIJSON = (text) => {
+        const start = text.indexOf('{');
+        const end = text.lastIndexOf('}');
+        if (start === -1 || end === -1) throw new Error("AI failed to return valid JSON");
+        const jsonStr = text.substring(start, end + 1);
+        return JSON.parse(jsonStr);
+      };
+
       // 1. Classify Intent
       const intentPrompt = `Task: Classify intent. Date: ${dateInfo}. Input: "${text}"
       Intents: TRANSACTION, BUDGET_UPDATE, QUERY.
       Return ONLY JSON: {"intent": "..."}.`;
       
       const result = await model.generateContent([intentPrompt]);
-      const { intent } = JSON.parse(result.response.text().replace(/```json|```/g, '').trim());
+      const { intent } = parseAIJSON(result.response.text());
 
       await doc.loadInfo();
 
@@ -79,7 +88,7 @@ module.exports = async (req, res) => {
       if (intent === 'BUDGET_UPDATE') {
         const budgetPrompt = `Extract budget amount from: "${text}". Return ONLY JSON: {"amount": number}.`;
         const bResult = await model.generateContent([budgetPrompt]);
-        const { amount } = JSON.parse(bResult.response.text().replace(/```json|```/g, '').trim());
+        const { amount } = parseAIJSON(bResult.response.text());
 
         let configSheet = doc.sheetsByTitle['Config'] || await doc.addSheet({ title: 'Config', headerValues: ['Setting', 'Value'] });
         const rows = await configSheet.getRows();
@@ -114,7 +123,7 @@ module.exports = async (req, res) => {
       if (intent === 'TRANSACTION') {
         const transPrompt = `Input: "${text}". Categories: [${categoriesList}]. Extract JSON: {amount, category, date, description}. Use closest Category.`;
         const tResult = await model.generateContent([transPrompt]);
-        const tData = JSON.parse(tResult.response.text().replace(/```json|```/g, '').trim());
+        const tData = parseAIJSON(tResult.response.text());
         
         const finalDate = tData.date && tData.date.includes('-') ? tData.date : dateInfo;
         let sheet = doc.sheetsByTitle['Transactions'] || await doc.addSheet({ title: 'Transactions', headerValues: ['Date', 'User', 'Amount', 'Category', 'Description'] });
@@ -151,7 +160,7 @@ module.exports = async (req, res) => {
         { text: `Extract transaction. Categories: [${categoriesList}]. Return JSON: {amount, category, date, description}. Date: ${dateInfo}.` },
         { inlineData: { data: base64Data, mimeType } }
       ]);
-      const tData = JSON.parse(result.response.text().replace(/```json|```/g, '').trim());
+      const tData = parseAIJSON(result.response.text());
       
       const finalDate = tData.date && tData.date.includes('-') ? tData.date : dateInfo;
       let sheet = doc.sheetsByTitle['Transactions'] || await doc.addSheet({ title: 'Transactions', headerValues: ['Date', 'User', 'Amount', 'Category', 'Description'] });
