@@ -10,6 +10,10 @@ async function getServices() {
   const SHEET_ID = process.env.SHEET_ID;
   const AUTHORIZED_USERS = (process.env.AUTHORIZED_USERS || "").split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
 
+  if (!process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
+    throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY is missing!");
+  }
+
   const serviceAccount = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
   const serviceAccountAuth = new JWT({
     email: serviceAccount.client_email,
