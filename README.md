@@ -43,7 +43,11 @@ A high-performance, AI-powered personal finance assistant that lives in your Tel
     - Create a new Google Sheet.
     - Copy the **Sheet ID** from the URL (between `/d/` and `/edit`).
     - Share the sheet with the `client_email` from your JSON key as an **Editor**.
-    - Ensure you have a tab named **Transactions** with headers: `Date, User, Amount, Category, Description`.
+    - Ensure you have the following tabs in your Google Sheet:
+        1. **Transactions**: The main ledger. Headers: `Date, User, Amount, Category, Description`.
+        2. **Config**: Stores your settings. The bot will automatically create this.
+        3. **Categories**: (Optional but Recommended) Create a tab named `Categories` with a column header in cell A1 named `Categories`. List your allowed categories below it. You can also add an `Examples` column next to it to help the AI understand what belongs in each category.
+        4. **Recurring payments**: (Optional) Create a tab named `Recurring payments` with headers: `Category, Description, User, Amount`. List expenses you want auto-logged on the 1st of every month.
 
 ### 3. Google AI Studio (Gemini)
 1. Go to [Google AI Studio](https://aistudio.google.com/).
