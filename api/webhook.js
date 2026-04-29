@@ -52,12 +52,15 @@ module.exports = async (req, res) => {
   bot.on('text', async (ctx) => {
     const text = ctx.message.text;
     try {
-      const result = await model.generateContent([`Extract transaction: ${text}. Return JSON {amount, category, date, description}`]);
+      const logDate = new Date().toISOString().split('T')[0];
+      const result = await model.generateContent([`Extract transaction: ${text}. Return ONLY JSON: {amount: number, category: string, date: string, description: string}. Use "${logDate}" as the date if no date is mentioned. NEVER return "YYYY-MM-DD".`]);
       const cleanText = result.response.text().replace(/```json|```/g, '').trim();
       const transaction = JSON.parse(cleanText);
       
+      const finalDate = transaction.date && transaction.date !== 'YYYY-MM-DD' ? transaction.date : logDate;
+      
       let sheet = doc.sheetsByTitle['Transactions'] || await doc.addSheet({ title: 'Transactions', headerValues: ['Date', 'User', 'Amount', 'Category', 'Description'] });
-      await sheet.addRow([transaction.date, ctx.from.first_name, transaction.amount, transaction.category, transaction.description]);
+      await sheet.addRow([finalDate, ctx.from.first_name, transaction.amount, transaction.category, transaction.description]);
       
       await ctx.reply(`✅ Logged: $${transaction.amount}`);
     } catch (e) {
