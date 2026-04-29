@@ -50,10 +50,20 @@ A high-performance, AI-powered personal finance assistant that lives in your Tel
 2. Click **Get API key** and copy it.
 
 ### 4. Vercel Deployment
-1. Create a free account on [Vercel](https://vercel.com/).
-2. Push this code to a **Private** GitHub repository.
-3. Connect the repo to Vercel.
-4. Add the following **Environment Variables** in the Vercel dashboard:
+
+You have two options for deployment:
+
+**Option A: Use a Private Repository (Recommended for active developers)**
+1. Push this code to a **Private** GitHub repository.
+2. Connect the repo to Vercel.
+3. *Benefit*: You can customize the code and add specific features for yourself.
+
+**Option B: Link directly to this Public Repository (Best for users who want updates)**
+1. Create a Vercel account and click **Import Project**.
+2. Paste the URL of this public repository.
+3. *Benefit*: Whenever the owner updates this repository (like fixing a Gemini bug), your bot will automatically redeploy with the fix!
+
+Whichever option you choose, add the following **Environment Variables** in the Vercel dashboard:
     - `TELEGRAM_TOKEN`: Your bot token.
     - `GEMINI_API_KEY`: Your Gemini key.
     - `SHEET_ID`: Your Google Sheet ID.
