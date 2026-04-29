@@ -93,17 +93,27 @@ module.exports = async (req, res) => {
 
         const sheet = doc.sheetsByTitle['Transactions'];
         const rows = await sheet.getRows();
+        
+        const targetMonth = parseInt(data.month);
+        const targetYear = parseInt(data.year);
+        
         let totalSpent = 0;
         rows.forEach(row => {
-          const rowDate = new Date(row.get('Date'));
-          if (rowDate.getMonth() === (data.month - 1) && rowDate.getFullYear() === data.year) {
+          const rowDateStr = row.get('Date');
+          if (!rowDateStr) return;
+          
+          const dateParts = rowDateStr.split('-');
+          const rowYear = parseInt(dateParts[0]);
+          const rowMonth = parseInt(dateParts[1]);
+
+          if (rowMonth === targetMonth && rowYear === targetYear) {
             totalSpent += parseFloat(row.get('Amount') || 0);
           }
         });
 
-        const monthName = new Date(data.year, data.month - 1).toLocaleString('default', { month: 'long' });
+        const monthName = new Date(targetYear, targetMonth - 1).toLocaleString('default', { month: 'long' });
         const remaining = budget - totalSpent;
-        return ctx.reply(`📊 *Report for ${monthName} ${data.year}*\nBudget: $${budget.toFixed(2)}\nTotal Spent: $${totalSpent.toFixed(2)}\nRemaining: $${remaining.toFixed(2)}`, { parse_mode: 'Markdown' });
+        return ctx.reply(`📊 *Report for ${monthName} ${targetYear}*\nBudget: $${budget.toFixed(2)}\nTotal Spent: $${totalSpent.toFixed(2)}\nRemaining: $${remaining.toFixed(2)}`, { parse_mode: 'Markdown' });
       }
 
       if (intent === 'TRANSACTION') {
