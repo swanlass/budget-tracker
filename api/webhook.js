@@ -83,6 +83,7 @@ module.exports = async (req, res) => {
       }
 
       if (intent === 'QUERY') {
+        // A. Get Budget from Config
         const configSheet = doc.sheetsByTitle['Config'];
         let budget = 8000;
         if (configSheet) {
@@ -91,39 +92,28 @@ module.exports = async (req, res) => {
           if (budgetRow) budget = parseFloat(budgetRow.get('Value'));
         }
 
+        // B. Get ALL Transactions
         const sheet = doc.sheetsByTitle['Transactions'];
         const rows = await sheet.getRows();
-        
-        // Robust Month Parsing
-        const monthMap = { 'january': 1, 'february': 2, 'march': 3, 'april': 4, 'may': 5, 'june': 6, 'july': 7, 'august': 8, 'september': 9, 'october': 10, 'november': 11, 'december': 12 };
-        let targetMonth = parseInt(data.month);
-        if (isNaN(targetMonth) && typeof data.month === 'string') {
-          targetMonth = monthMap[data.month.toLowerCase()];
-        }
-        const targetYear = parseInt(data.year) || new Date().getFullYear();
-        
-        if (!targetMonth || isNaN(targetMonth)) {
-           return ctx.reply(`❌ I couldn't understand which month you are asking about. Please try "March 2026".`);
-        }
-        
-        let totalSpent = 0;
-        rows.forEach(row => {
-          const rowDateStr = row.get('Date');
-          if (!rowDateStr) return;
-          
-          // Handle both YYYY-MM-DD and other formats
-          const dateParts = rowDateStr.split(/[-/]/);
-          const rowYear = parseInt(dateParts[0]);
-          const rowMonth = parseInt(dateParts[1]);
+        const transactionHistory = rows.map(r => {
+          return `Date: ${r.get('Date')}, User: ${r.get('User')}, Amount: ${r.get('Amount')}, Category: ${r.get('Category')}, Desc: ${r.get('Description')}`;
+        }).join('\n');
 
-          if (rowMonth === targetMonth && rowYear === targetYear) {
-            totalSpent += parseFloat(row.get('Amount') || 0);
-          }
-        });
+        // C. Ask Gemini to analyze the data
+        const analysisPrompt = `Context:
+        Current Budget: $${budget}
+        Today's Date: ${new Date().toISOString().split('T')[0]}
+        Transaction History:
+        ${transactionHistory}
 
-        const monthName = new Date(targetYear, targetMonth - 1).toLocaleString('default', { month: 'long' });
-        const remaining = budget - totalSpent;
-        return ctx.reply(`📊 *Report for ${monthName} ${targetYear}*\nBudget: $${budget.toFixed(2)}\nTotal Spent: $${totalSpent.toFixed(2)}\nRemaining: $${remaining.toFixed(2)}`, { parse_mode: 'Markdown' });
+        User Question: "${text}"
+        
+        Task: Answer the user's question accurately based on the history. 
+        If they ask for a report or "how much left", provide a summary of the current month vs budget.
+        Be concise and use Markdown formatting.`;
+
+        const analysisResult = await model.generateContent([analysisPrompt]);
+        return ctx.reply(analysisResult.response.text(), { parse_mode: 'Markdown' });
       }
 
       if (intent === 'TRANSACTION') {
