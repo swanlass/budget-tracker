@@ -52,12 +52,20 @@ module.exports = async (req, res) => {
   bot.on('text', async (ctx) => {
     const text = ctx.message.text;
     
+    const cleanMsg = text.toLowerCase().trim();
+
     // 1. Check for Budget Update (e.g., "Set budget to 1000")
-    if (text.toLowerCase().includes('set budget to')) {
+    if (cleanMsg.startsWith('set budget to')) {
       try {
-        const newBudget = parseFloat(text.match(/\d+/)[0]);
+        const match = text.match(/\d+/);
+        if (!match) return ctx.reply("❌ Please provide a number (e.g., Set budget to 1000)");
+        const newBudget = parseFloat(match[0]);
+        
         await doc.loadInfo();
-        let configSheet = doc.sheetsByTitle['Config'] || await doc.addSheet({ title: 'Config', headerValues: ['Setting', 'Value'] });
+        let configSheet = doc.sheetsByTitle['Config'];
+        if (!configSheet) {
+          configSheet = await doc.addSheet({ title: 'Config', headerValues: ['Setting', 'Value'] });
+        }
         
         const rows = await configSheet.getRows();
         const budgetRow = rows.find(r => r.get('Setting') === 'Monthly Budget');
