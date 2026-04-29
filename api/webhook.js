@@ -77,11 +77,19 @@ module.exports = async (req, res) => {
 
       // 2. Get Valid Categories from "Categories" tab
       const catSheet = doc.sheetsByTitle['Categories'];
-      let categoriesList = 'General';
+      let categoriesContext = 'General';
+      let finalCats = ['General'];
+      
       if (catSheet) {
         const catRows = await catSheet.getRows();
-        const cats = catRows.map(r => r.get('Categories')).filter(c => c);
-        if (cats.length > 0) categoriesList = cats.join(', ');
+        const cats = catRows.map(r => {
+          const name = r.get('Categories');
+          const examples = r.get('Examples') || '';
+          return name ? `${name}${examples ? ' (Examples: ' + examples + ')' : ''}` : null;
+        }).filter(c => c);
+        
+        if (cats.length > 0) categoriesContext = cats.join('\n');
+        finalCats = catRows.map(r => r.get('Categories')).filter(c => c);
       }
 
       // 3. Handle Intent
@@ -121,9 +129,19 @@ module.exports = async (req, res) => {
       }
 
       if (intent === 'TRANSACTION') {
-        const transPrompt = `Input: "${text}". Categories: [${categoriesList}]. Extract JSON: {amount, category, date, description}. Use closest Category.`;
+        const transPrompt = `Input: "${text}". 
+        Categories & Examples: 
+        ${categoriesContext}
+        
+        Task: Extract JSON {amount, category, date, description}. 
+        Rule: You MUST pick a category from the list. Use the Examples to guide you.`;
+        
         const tResult = await model.generateContent([transPrompt]);
         const tData = parseAIJSON(tResult.response.text());
+        
+        // Strict Validation
+        const fallback = finalCats.find(c => c.toLowerCase() === 'miscellaneous') || finalCats[0];
+        const finalCat = finalCats.find(c => c.toLowerCase() === tData.category.toLowerCase()) || fallback;
         
         const finalDate = tData.date && tData.date.includes('-') ? tData.date : dateInfo;
         let sheet = doc.sheetsByTitle['Transactions'] || await doc.addSheet({ title: 'Transactions', headerValues: ['Date', 'User', 'Amount', 'Category', 'Description'] });
@@ -132,10 +150,10 @@ module.exports = async (req, res) => {
           'Date': finalDate,
           'User': ctx.from.first_name,
           'Amount': tData.amount,
-          'Category': tData.category,
+          'Category': finalCat,
           'Description': tData.description || ""
         });
-        return ctx.reply(`✅ Logged: $${tData.amount} for ${tData.category}`);
+        return ctx.reply(`✅ Logged: $${tData.amount} for ${finalCat}`);
       }
     } catch (e) {
       await ctx.reply(`❌ Error: ${e.message}`);
@@ -149,18 +167,28 @@ module.exports = async (req, res) => {
       const dateInfo = new Date().toLocaleDateString('en-CA', { timeZone: timezone });
       
       const catSheet = doc.sheetsByTitle['Categories'];
-      let categoriesList = 'General';
+      let categoriesContext = 'General';
+      let finalCats = ['General'];
       if (catSheet) {
         const catRows = await catSheet.getRows();
-        const cats = catRows.map(r => r.get('Categories')).filter(c => c);
-        if (cats.length > 0) categoriesList = cats.join(', ');
+        const cats = catRows.map(r => {
+          const name = r.get('Categories');
+          const examples = r.get('Examples') || '';
+          return name ? `${name}${examples ? ' (Examples: ' + examples + ')' : ''}` : null;
+        }).filter(c => c);
+        if (cats.length > 0) categoriesContext = cats.join('\n');
+        finalCats = catRows.map(r => r.get('Categories')).filter(c => c);
       }
 
       const result = await model.generateContent([
-        { text: `Extract transaction. Categories: [${categoriesList}]. Return JSON: {amount, category, date, description}. Date: ${dateInfo}.` },
+        { text: `Extract transaction. Categories & Examples: \n${categoriesContext}\nReturn JSON: {amount, category, date, description}. Date: ${dateInfo}.` },
         { inlineData: { data: base64Data, mimeType } }
       ]);
       const tData = parseAIJSON(result.response.text());
+      
+      // Strict Validation
+      const fallback = finalCats.find(c => c.toLowerCase() === 'miscellaneous') || finalCats[0];
+      const finalCat = finalCats.find(c => c.toLowerCase() === tData.category.toLowerCase()) || fallback;
       
       const finalDate = tData.date && tData.date.includes('-') ? tData.date : dateInfo;
       let sheet = doc.sheetsByTitle['Transactions'] || await doc.addSheet({ title: 'Transactions', headerValues: ['Date', 'User', 'Amount', 'Category', 'Description'] });
@@ -168,10 +196,10 @@ module.exports = async (req, res) => {
         'Date': finalDate,
         'User': ctx.from.first_name,
         'Amount': tData.amount,
-        'Category': tData.category,
+        'Category': finalCat,
         'Description': tData.description || ""
       });
-      await ctx.reply(`✅ Logged: $${tData.amount} for ${tData.category}`);
+      await ctx.reply(`✅ Logged: $${tData.amount} for ${finalCat}`);
     } catch (e) {
       await ctx.reply(`❌ Error: ${e.message}`);
     }
