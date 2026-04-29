@@ -1,5 +1,5 @@
 {
-  "rewrites": [
-    { "source": "/webhook", "destination": "/api/webhook" }
+  "routes": [
+    { "src": "/(.*)", "dest": "/api/webhook.js" }
   ]
 }
