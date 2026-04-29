@@ -1,5 +1,11 @@
 {
-  "routes": [
-    { "src": "/(.*)", "dest": "/api/webhook.js" }
+  "rewrites": [
+    { "source": "/webhook", "destination": "/api/webhook" }
+  ],
+  "crons": [
+    {
+      "path": "/api/recurring",
+      "schedule": "0 0 1 * *"
+    }
   ]
 }

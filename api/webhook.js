@@ -148,7 +148,11 @@ module.exports = async (req, res) => {
 
         let calculatedTotal = 0;
         targetRows.forEach(r => {
-          calculatedTotal += parseFloat(r.get('Amount') || 0);
+          const amountStr = (r.get('Amount') || '0').toString();
+          const cleanAmount = parseFloat(amountStr.replace(/[^0-9.]/g, ''));
+          if (!isNaN(cleanAmount)) {
+            calculatedTotal += cleanAmount;
+          }
         });
 
         const analysisPrompt = `Context: 
