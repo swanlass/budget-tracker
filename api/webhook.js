@@ -136,10 +136,23 @@ module.exports = async (req, res) => {
           const budgetRow = configRows.find(r => r.get('Setting') === 'Monthly Budget');
           if (budgetRow) budget = parseFloat(budgetRow.get('Value'));
         }
+        
         const sheet = doc.sheetsByTitle['Transactions'];
-        const rows = await sheet.getRows();
-        const transactionHistory = rows.map(r => `Date: ${r.get('Date')}, Person: ${r.get('User')}, Amount: ${r.get('Amount')}, Category: ${r.get('Category')}, Desc: ${r.get('Description')}`).join('\n');
-        const analysisPrompt = `Context: Budget $${budget}, History: ${transactionHistory}. Question: "${text}". Return Markdown answer. Default to current month (${dateInfo}).`;
+        const allRows = await sheet.getRows();
+        
+        // PRE-FILTER: Only show the target timeframe to the AI
+        const targetRows = allRows.filter(r => {
+          const d = new Date(r.get('Date'));
+          // Default to current month if AI didn't specify a different one
+          return d.getMonth() === (data.month - 1) && d.getFullYear() === data.year;
+        });
+
+        const transactionHistory = targetRows.map(r => `Date: ${r.get('Date')}, Person: ${r.get('User')}, Amount: ${r.get('Amount')}, Category: ${r.get('Category')}, Desc: ${r.get('Description')}`).join('\n');
+
+        const analysisPrompt = `Context: Budget $${budget}, History for Period: ${transactionHistory}. 
+        Question: "${text}"
+        RULES: Only provide a total summary (Spent vs Budget). DO NOT list items. Be concise.`;
+
         const analysisResult = await model.generateContent([analysisPrompt]);
         return ctx.reply(analysisResult.response.text(), { parse_mode: 'Markdown' });
       }
