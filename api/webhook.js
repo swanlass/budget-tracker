@@ -10,10 +10,6 @@ async function getServices() {
   const SHEET_ID = process.env.SHEET_ID;
   const AUTHORIZED_USERS = (process.env.AUTHORIZED_USERS || "").split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
 
-  if (!process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
-    throw new Error("GOOGLE_SERVICE_ACCOUNT_KEY is missing!");
-  }
-
   const serviceAccount = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
   const serviceAccountAuth = new JWT({
     email: serviceAccount.client_email,
@@ -52,48 +48,43 @@ module.exports = async (req, res) => {
   bot.on('text', async (ctx) => {
     const text = ctx.message.text;
     
-    const cleanMsg = text.toLowerCase().trim();
+    try {
+      const dateInfo = new Date().toISOString().split('T')[0];
+      const intentPrompt = `Task: Classify user intent and extract data.
+      Current Date: ${dateInfo}
+      Input: "${text}"
+      
+      Intents:
+      - TRANSACTION: Logging an expense (amount, category, date, description).
+      - BUDGET_UPDATE: Setting a new monthly budget (amount).
+      - QUERY: Asking about spending/budget (month, year).
+      
+      Return ONLY JSON: {"intent": "TRANSACTION"|"BUDGET_UPDATE"|"QUERY", "data": {relevant fields}}.`;
+      
+      const result = await model.generateContent([intentPrompt]);
+      const responseText = result.response.text().replace(/```json|```/g, '').trim();
+      const { intent, data } = JSON.parse(responseText);
 
-    // 1. Check for Budget Update (e.g., "Set budget to 1000")
-    if (cleanMsg.startsWith('set budget to')) {
-      try {
-        const match = text.match(/\d+/);
-        if (!match) return ctx.reply("❌ Please provide a number (e.g., Set budget to 1000)");
-        const newBudget = parseFloat(match[0]);
-        
-        await doc.loadInfo();
-        let configSheet = doc.sheetsByTitle['Config'];
-        if (!configSheet) {
-          configSheet = await doc.addSheet({ title: 'Config', headerValues: ['Setting', 'Value'] });
-        }
-        
+      await doc.loadInfo();
+
+      // 2. Handle Intent
+      if (intent === 'BUDGET_UPDATE') {
+        let configSheet = doc.sheetsByTitle['Config'] || await doc.addSheet({ title: 'Config', headerValues: ['Setting', 'Value'] });
         const rows = await configSheet.getRows();
         const budgetRow = rows.find(r => r.get('Setting') === 'Monthly Budget');
         
         if (budgetRow) {
-          budgetRow.set('Value', newBudget);
+          budgetRow.set('Value', data.amount);
           await budgetRow.save();
         } else {
-          await configSheet.addRow(['Monthly Budget', newBudget]);
+          await configSheet.addRow(['Monthly Budget', data.amount]);
         }
-        
-        return ctx.reply(`⚙️ *Monthly Budget updated to: $${newBudget}*`, { parse_mode: 'Markdown' });
-      } catch (e) {
-        return ctx.reply(`❌ Setup Error: ${e.message}`);
+        return ctx.reply(`⚙️ *Monthly Budget updated to: $${data.amount}*`, { parse_mode: 'Markdown' });
       }
-    }
 
-    // 2. Check for text query (reporting)
-    const queryKeywords = ['budget', 'left', 'remaining', 'spent', 'how much'];
-    const isQuery = queryKeywords.some(kw => text.toLowerCase().includes(kw));
-
-    if (isQuery) {
-      try {
-        await doc.loadInfo();
-        
-        // Get Current Budget
+      if (intent === 'QUERY') {
         const configSheet = doc.sheetsByTitle['Config'];
-        let budget = 8000; // Default
+        let budget = 8000;
         if (configSheet) {
           const configRows = await configSheet.getRows();
           const budgetRow = configRows.find(r => r.get('Setting') === 'Monthly Budget');
@@ -102,35 +93,28 @@ module.exports = async (req, res) => {
 
         const sheet = doc.sheetsByTitle['Transactions'];
         const rows = await sheet.getRows();
-        const now = new Date();
-        const currentMonth = now.getMonth();
-        const currentYear = now.getFullYear();
-
         let totalSpent = 0;
         rows.forEach(row => {
-          const date = new Date(row.get('Date'));
-          if (date.getMonth() === currentMonth && date.getFullYear() === currentYear) {
+          const rowDate = new Date(row.get('Date'));
+          if (rowDate.getMonth() === (data.month - 1) && rowDate.getFullYear() === data.year) {
             totalSpent += parseFloat(row.get('Amount') || 0);
           }
         });
-        const remaining = budget - totalSpent;
-        return ctx.reply(`📊 *Budget Report (${now.toLocaleString('default', { month: 'long' })})*\nBudget: $${budget.toFixed(2)}\nTotal Spent: $${totalSpent.toFixed(2)}\nRemaining: $${remaining.toFixed(2)}`, { parse_mode: 'Markdown' });
-      } catch (e) {
-        return ctx.reply(`❌ Report Error: ${e.message}`);
-      }
-    }
 
-    try {
-      const logDate = new Date().toISOString().split('T')[0];
-      const result = await model.generateContent([`Extract transaction: ${text}. Return ONLY JSON: {amount: number, category: string, date: string, description: string}. Use "${logDate}" as the date if no date is mentioned. NEVER return "YYYY-MM-DD".`]);
-      const cleanText = result.response.text().replace(/```json|```/g, '').trim();
-      const transaction = JSON.parse(cleanText);
-      const finalDate = transaction.date && transaction.date !== 'YYYY-MM-DD' ? transaction.date : logDate;
-      let sheet = doc.sheetsByTitle['Transactions'] || await doc.addSheet({ title: 'Transactions', headerValues: ['Date', 'User', 'Amount', 'Category', 'Description'] });
-      await sheet.addRow([finalDate, ctx.from.first_name, transaction.amount, transaction.category, transaction.description]);
-      await ctx.reply(`✅ Logged: $${transaction.amount}`);
+        const monthName = new Date(data.year, data.month - 1).toLocaleString('default', { month: 'long' });
+        const remaining = budget - totalSpent;
+        return ctx.reply(`📊 *Report for ${monthName} ${data.year}*\nBudget: $${budget.toFixed(2)}\nTotal Spent: $${totalSpent.toFixed(2)}\nRemaining: $${remaining.toFixed(2)}`, { parse_mode: 'Markdown' });
+      }
+
+      if (intent === 'TRANSACTION') {
+        const finalDate = data.date && data.date !== 'YYYY-MM-DD' ? data.date : dateInfo;
+        let sheet = doc.sheetsByTitle['Transactions'] || await doc.addSheet({ title: 'Transactions', headerValues: ['Date', 'User', 'Amount', 'Category', 'Description'] });
+        await sheet.addRow([finalDate, ctx.from.first_name, data.amount, data.category, data.description || ""]);
+        return ctx.reply(`✅ Logged: $${data.amount} for ${data.category}`);
+      }
+
     } catch (e) {
-      await ctx.reply(`❌ Error: ${e.message}`);
+      await ctx.reply(`❌ Bot Error: ${e.message}`);
     }
   });
 
