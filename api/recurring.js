@@ -3,8 +3,10 @@ const { JWT } = require('google-auth-library');
 const { Telegraf } = require('telegraf');
 
 module.exports = async (req, res) => {
-  // Security check (Vercel adds this header for Cron jobs)
-  if (req.headers['x-vercel-cron'] !== '1') {
+  const isCron = req.headers['x-vercel-cron'] === '1';
+  const isTest = req.query && req.query.test === 'true';
+
+  if (!isCron && !isTest) {
     return res.status(401).send('Unauthorized');
   }
 
