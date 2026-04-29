@@ -102,15 +102,16 @@ module.exports = async (req, res) => {
         // C. Ask Gemini to analyze the data
         const analysisPrompt = `Context:
         Current Budget: $${budget}
-        Today's Date: ${new Date().toISOString().split('T')[0]}
+        Today's Date: ${new Date().toISOString().split('T')[0]} (Current Month is ${new Date().toLocaleString('default', { month: 'long' })})
         Transaction History:
         ${transactionHistory}
 
         User Question: "${text}"
         
-        Task: Answer the user's question accurately based on the history. 
-        If they ask for a report or "how much left", provide a summary of the current month vs budget.
-        Be concise and use Markdown formatting.`;
+        CRITICAL INSTRUCTIONS:
+        1. If the user DOES NOT specify a month or year in their question, you MUST ONLY use transactions from the current month (${new Date().toLocaleString('default', { month: 'long' })} ${new Date().getFullYear()}) in your calculations and response.
+        2. If they ask for a report or "how much left", provide a summary of the current month vs budget.
+        3. Be concise and use Markdown formatting.`;
 
         const analysisResult = await model.generateContent([analysisPrompt]);
         return ctx.reply(analysisResult.response.text(), { parse_mode: 'Markdown' });
