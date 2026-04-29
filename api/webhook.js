@@ -65,13 +65,33 @@ module.exports = async (req, res) => {
         return JSON.parse(jsonStr);
       };
 
-      // 1. Classify Intent
-      const intentPrompt = `Task: Classify intent. Date: ${dateInfo}. Input: "${text}"
-      Intents: TRANSACTION, BUDGET_UPDATE, QUERY.
-      Return ONLY JSON: {"intent": "..."}.`;
+      // 1. Classify Intent and Extract Data in ONE PASS
+      const intentPrompt = `Task: Process user input.
+      Current Date: ${dateInfo}
+      Valid Categories & Examples:
+      ${categoriesContext}
+      
+      Input: "${text}"
+      
+      Rules:
+      - If the user mentions an amount and a place/item (e.g. "101 at costco"), it is a TRANSACTION.
+      - If they ask a question ("how much", "spent last month"), it is a QUERY.
+      - If they set a limit ("budget 5000"), it is a BUDGET_UPDATE.
+      
+      Return ONLY JSON: {
+        "intent": "TRANSACTION" | "BUDGET_UPDATE" | "QUERY",
+        "data": {
+           "amount": number, 
+           "category": "closest match from list", 
+           "date": "YYYY-MM-DD", 
+           "description": "extra info",
+           "month": number, 
+           "year": number
+        }
+      }`;
       
       const result = await model.generateContent([intentPrompt]);
-      const { intent } = parseAIJSON(result.response.text());
+      const { intent, data } = parseAIJSON(result.response.text());
 
       await doc.loadInfo();
 
@@ -94,20 +114,16 @@ module.exports = async (req, res) => {
 
       // 3. Handle Intent
       if (intent === 'BUDGET_UPDATE') {
-        const budgetPrompt = `Extract budget amount from: "${text}". Return ONLY JSON: {"amount": number}.`;
-        const bResult = await model.generateContent([budgetPrompt]);
-        const { amount } = parseAIJSON(bResult.response.text());
-
         let configSheet = doc.sheetsByTitle['Config'] || await doc.addSheet({ title: 'Config', headerValues: ['Setting', 'Value'] });
         const rows = await configSheet.getRows();
         let budgetRow = rows.find(r => r.get('Setting') === 'Monthly Budget');
         if (budgetRow) {
-          budgetRow.set('Value', amount);
+          budgetRow.set('Value', data.amount);
           await budgetRow.save();
         } else {
-          await configSheet.addRow(['Monthly Budget', amount]);
+          await configSheet.addRow(['Monthly Budget', data.amount]);
         }
-        return ctx.reply(`⚙️ *Monthly Budget updated to: $${amount}*`, { parse_mode: 'Markdown' });
+        return ctx.reply(`⚙️ *Monthly Budget updated to: $${data.amount}*`, { parse_mode: 'Markdown' });
       }
 
       if (intent === 'QUERY') {
@@ -118,42 +134,28 @@ module.exports = async (req, res) => {
           const budgetRow = configRows.find(r => r.get('Setting') === 'Monthly Budget');
           if (budgetRow) budget = parseFloat(budgetRow.get('Value'));
         }
-
         const sheet = doc.sheetsByTitle['Transactions'];
         const rows = await sheet.getRows();
         const transactionHistory = rows.map(r => `Date: ${r.get('Date')}, Person: ${r.get('User')}, Amount: ${r.get('Amount')}, Category: ${r.get('Category')}, Desc: ${r.get('Description')}`).join('\n');
-
         const analysisPrompt = `Context: Budget $${budget}, History: ${transactionHistory}. Question: "${text}". Return Markdown answer. Default to current month (${dateInfo}).`;
         const analysisResult = await model.generateContent([analysisPrompt]);
         return ctx.reply(analysisResult.response.text(), { parse_mode: 'Markdown' });
       }
 
       if (intent === 'TRANSACTION') {
-        const transPrompt = `Input: "${text}". 
-        Categories & Examples: 
-        ${categoriesContext}
-        
-        Task: Extract JSON {amount, category, date, description}. 
-        Rule: You MUST pick a category from the list. Use the Examples to guide you.`;
-        
-        const tResult = await model.generateContent([transPrompt]);
-        const tData = parseAIJSON(tResult.response.text());
-        
-        // Strict Validation
         const fallback = finalCats.find(c => c.toLowerCase() === 'miscellaneous') || finalCats[0];
-        const finalCat = finalCats.find(c => c.toLowerCase() === tData.category.toLowerCase()) || fallback;
+        const finalCat = finalCats.find(c => c.toLowerCase() === data.category.toLowerCase()) || fallback;
+        const finalDate = data.date && data.date.includes('-') ? data.date : dateInfo;
         
-        const finalDate = tData.date && tData.date.includes('-') ? tData.date : dateInfo;
         let sheet = doc.sheetsByTitle['Transactions'] || await doc.addSheet({ title: 'Transactions', headerValues: ['Date', 'User', 'Amount', 'Category', 'Description'] });
-        
         await sheet.addRow({
           'Date': finalDate,
           'User': ctx.from.first_name,
-          'Amount': tData.amount,
+          'Amount': data.amount,
           'Category': finalCat,
-          'Description': tData.description || ""
+          'Description': data.description || ""
         });
-        return ctx.reply(`✅ Logged: $${tData.amount} for ${finalCat}`);
+        return ctx.reply(`✅ Logged: $${data.amount} for ${finalCat}`);
       }
     } catch (e) {
       await ctx.reply(`❌ Error: ${e.message}`);
