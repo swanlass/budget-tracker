@@ -129,6 +129,67 @@ module.exports = async (req, res) => {
     }
   });
 
+  // 4. Handle Voice Messages
+  bot.on('voice', async (ctx) => {
+    try {
+      const voice = ctx.message.voice;
+      const fileLink = await bot.telegram.getFileLink(voice.file_id);
+      
+      // Fetch audio file
+      const response = await fetch(fileLink);
+      const buffer = await response.arrayBuffer();
+      const base64Data = Buffer.from(buffer).toString('base64');
+      
+      const logDate = new Date().toISOString().split('T')[0];
+      const result = await model.generateContent([
+        { text: `Extract transaction from this audio. Return ONLY JSON: {amount: number, category: string, date: string, description: string}. Use "${logDate}" as the date if no date is mentioned. NEVER return "YYYY-MM-DD".` },
+        { inlineData: { data: base64Data, mimeType: 'audio/ogg' } }
+      ]);
+
+      const cleanText = result.response.text().replace(/```json|```/g, '').trim();
+      const transaction = JSON.parse(cleanText);
+      const finalDate = transaction.date && transaction.date !== 'YYYY-MM-DD' ? transaction.date : logDate;
+
+      await doc.loadInfo();
+      let sheet = doc.sheetsByTitle['Transactions'] || await doc.addSheet({ title: 'Transactions', headerValues: ['Date', 'User', 'Amount', 'Category', 'Description'] });
+      await sheet.addRow([finalDate, ctx.from.first_name, transaction.amount, transaction.category, transaction.description || ""]);
+      
+      await ctx.reply(`✅ Voice Logged: $${transaction.amount} for ${transaction.category}`);
+    } catch (e) {
+      await ctx.reply(`❌ Voice Error: ${e.message}`);
+    }
+  });
+
+  // 5. Handle Photos (Receipts)
+  bot.on('photo', async (ctx) => {
+    try {
+      const photo = ctx.message.photo[ctx.message.photo.length - 1];
+      const fileLink = await bot.telegram.getFileLink(photo.file_id);
+      
+      const response = await fetch(fileLink);
+      const buffer = await response.arrayBuffer();
+      const base64Data = Buffer.from(buffer).toString('base64');
+      
+      const logDate = new Date().toISOString().split('T')[0];
+      const result = await model.generateContent([
+        { text: `Extract transaction from this receipt photo. Return ONLY JSON: {amount: number, category: string, date: string, description: string}. Use "${logDate}" as the date if no date is mentioned. NEVER return "YYYY-MM-DD".` },
+        { inlineData: { data: base64Data, mimeType: 'image/jpeg' } }
+      ]);
+
+      const cleanText = result.response.text().replace(/```json|```/g, '').trim();
+      const transaction = JSON.parse(cleanText);
+      const finalDate = transaction.date && transaction.date !== 'YYYY-MM-DD' ? transaction.date : logDate;
+
+      await doc.loadInfo();
+      let sheet = doc.sheetsByTitle['Transactions'] || await doc.addSheet({ title: 'Transactions', headerValues: ['Date', 'User', 'Amount', 'Category', 'Description'] });
+      await sheet.addRow([finalDate, ctx.from.first_name, transaction.amount, transaction.category, transaction.description || ""]);
+      
+      await ctx.reply(`✅ Receipt Logged: $${transaction.amount} for ${transaction.category}`);
+    } catch (e) {
+      await ctx.reply(`❌ Photo Error: ${e.message}`);
+    }
+  });
+
   // Handle the Telegram Update
   try {
     await bot.handleUpdate(req.body);
