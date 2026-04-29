@@ -17,7 +17,7 @@ A high-performance, AI-powered personal finance assistant that lives in your Tel
 ## 🛠️ Tech Stack
 
 - **Interface**: [Telegram Bot API](https://core.telegram.org/bots/api)
-- **Brain**: [Google Gemini 2.5 Flash](https://ai.google.dev/)
+- **Brain**: [Google Gemini 2.5 Flash-Lite](https://ai.google.dev/)
 - **Database**: [Google Sheets API](https://developers.google.com/sheets/api)
 - **Infrastructure**: [Vercel Serverless Functions](https://vercel.com/)
 - **Language**: Node.js
