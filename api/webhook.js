@@ -53,6 +53,25 @@ module.exports = async (req, res) => {
     }
 
     try {
+      await doc.loadInfo();
+
+      // 1. Get Valid Categories from "Categories" tab
+      const catSheet = doc.sheetsByTitle['Categories'];
+      let categoriesContext = 'General';
+      let finalCats = ['General'];
+      
+      if (catSheet) {
+        const catRows = await catSheet.getRows();
+        const cats = catRows.map(r => {
+          const name = r.get('Categories');
+          const examples = r.get('Examples') || '';
+          return name ? `${name}${examples ? ' (Examples: ' + examples + ')' : ''}` : null;
+        }).filter(c => c);
+        
+        if (cats.length > 0) categoriesContext = cats.join('\n');
+        finalCats = catRows.map(r => r.get('Categories')).filter(c => c);
+      }
+
       const timezone = process.env.TIMEZONE || 'America/Denver'; 
       const dateInfo = new Date().toLocaleDateString('en-CA', { timeZone: timezone });
       
@@ -94,23 +113,6 @@ module.exports = async (req, res) => {
       const { intent, data } = parseAIJSON(result.response.text());
 
       await doc.loadInfo();
-
-      // 2. Get Valid Categories from "Categories" tab
-      const catSheet = doc.sheetsByTitle['Categories'];
-      let categoriesContext = 'General';
-      let finalCats = ['General'];
-      
-      if (catSheet) {
-        const catRows = await catSheet.getRows();
-        const cats = catRows.map(r => {
-          const name = r.get('Categories');
-          const examples = r.get('Examples') || '';
-          return name ? `${name}${examples ? ' (Examples: ' + examples + ')' : ''}` : null;
-        }).filter(c => c);
-        
-        if (cats.length > 0) categoriesContext = cats.join('\n');
-        finalCats = catRows.map(r => r.get('Categories')).filter(c => c);
-      }
 
       // 3. Handle Intent
       if (intent === 'BUDGET_UPDATE') {
