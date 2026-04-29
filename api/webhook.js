@@ -135,20 +135,19 @@ module.exports = async (req, res) => {
       const voice = ctx.message.voice;
       const fileLink = await bot.telegram.getFileLink(voice.file_id);
       
-      // Fetch audio file
       const response = await fetch(fileLink);
       const buffer = await response.arrayBuffer();
       const base64Data = Buffer.from(buffer).toString('base64');
       
       const logDate = new Date().toISOString().split('T')[0];
       const result = await model.generateContent([
-        { text: `Extract transaction from this audio. Return ONLY JSON: {amount: number, category: string, date: string, description: string}. Use "${logDate}" as the date if no date is mentioned. NEVER return "YYYY-MM-DD".` },
+        { text: `Extract transaction from audio. Return ONLY JSON: {amount: number, category: string, date: string, description: string}. Use "${logDate}" as the date if no date is mentioned. Format date strictly as YYYY-MM-DD.` },
         { inlineData: { data: base64Data, mimeType: 'audio/ogg' } }
       ]);
 
       const cleanText = result.response.text().replace(/```json|```/g, '').trim();
       const transaction = JSON.parse(cleanText);
-      const finalDate = transaction.date && transaction.date !== 'YYYY-MM-DD' ? transaction.date : logDate;
+      const finalDate = transaction.date && transaction.date.includes('-') ? transaction.date : logDate;
 
       await doc.loadInfo();
       let sheet = doc.sheetsByTitle['Transactions'] || await doc.addSheet({ title: 'Transactions', headerValues: ['Date', 'User', 'Amount', 'Category', 'Description'] });
@@ -172,13 +171,13 @@ module.exports = async (req, res) => {
       
       const logDate = new Date().toISOString().split('T')[0];
       const result = await model.generateContent([
-        { text: `Extract transaction from this receipt photo. Return ONLY JSON: {amount: number, category: string, date: string, description: string}. Use "${logDate}" as the date if no date is mentioned. NEVER return "YYYY-MM-DD".` },
+        { text: `Extract transaction from receipt photo. Return ONLY JSON: {amount: number, category: string, date: string, description: string}. Use "${logDate}" as the date if no date is mentioned. Format date strictly as YYYY-MM-DD.` },
         { inlineData: { data: base64Data, mimeType: 'image/jpeg' } }
       ]);
 
       const cleanText = result.response.text().replace(/```json|```/g, '').trim();
       const transaction = JSON.parse(cleanText);
-      const finalDate = transaction.date && transaction.date !== 'YYYY-MM-DD' ? transaction.date : logDate;
+      const finalDate = transaction.date && transaction.date.includes('-') ? transaction.date : logDate;
 
       await doc.loadInfo();
       let sheet = doc.sheetsByTitle['Transactions'] || await doc.addSheet({ title: 'Transactions', headerValues: ['Date', 'User', 'Amount', 'Category', 'Description'] });
