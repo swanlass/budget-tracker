@@ -96,6 +96,7 @@ module.exports = async (req, res) => {
       - If the user mentions an amount and a place/item (e.g. "101 at costco"), it is a TRANSACTION.
       - If they ask a question ("how much", "spent last month"), it is a QUERY.
       - If they set a limit ("budget 5000"), it is a BUDGET_UPDATE.
+      - For QUERY, if the user does not specify a month or year, use the current month and year from Current Date (${dateInfo}).
       
       Return ONLY JSON: {
         "intent": "TRANSACTION" | "BUDGET_UPDATE" | "QUERY",
@@ -155,16 +156,24 @@ module.exports = async (req, res) => {
           }
         });
 
+        const transactionsText = targetRows.map(r => {
+          return `Date: ${r.get('Date')}, User: ${r.get('User') || 'Unknown'}, Amount: ${r.get('Amount')}, Category: ${r.get('Category') || 'General'}, Description: ${r.get('Description') || ''}`;
+        }).join('\n');
+
         const analysisPrompt = `Context: 
         Target Period: ${new Date(data.year, data.month - 1).toLocaleString('default', { month: 'long' })} ${data.year}
         Budget: $${budget}
         TOTAL SPENT CALCULATED: $${calculatedTotal.toFixed(2)}
 
+        Transactions for the period:
+        ${transactionsText || 'No transactions found.'}
+
         Question: "${text}"
         
         RULES:
-        - You MUST use the TOTAL SPENT CALCULATED ($${calculatedTotal.toFixed(2)}) in your response.
-        - Be extremely concise. Tell the user the total spent and remaining budget for the period.`;
+        - You MUST use the TOTAL SPENT CALCULATED ($${calculatedTotal.toFixed(2)}) in your response when discussing the total.
+        - Answer the user's question based on the provided transactions (e.g., who spent the most, where, etc.).
+        - Be extremely concise. Tell the user the total spent and remaining budget for the period, and answer their specific question.`;
 
         const analysisResult = await model.generateContent([analysisPrompt]);
         return ctx.reply(analysisResult.response.text(), { parse_mode: 'Markdown' });
