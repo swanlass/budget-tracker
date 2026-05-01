@@ -54,9 +54,7 @@ module.exports = async (req, res) => {
     await ctx.reply(`❌ Unauthorized. ID: ${ctx.from.id}`);
   });
 
-  bot.on('text', async (ctx) => {
-    const text = ctx.message.text;
-    
+  const processMessage = async (ctx, text) => {
     if (text.startsWith('/start')) {
       return ctx.reply("👋 Welcome to the Budget Tracker! Log expenses like 'lunch $15', ask 'how much left?', or set your limit with 'make the budget 5000'.");
     }
@@ -197,6 +195,10 @@ module.exports = async (req, res) => {
     } catch (e) {
       await ctx.reply(`❌ Error: ${e.message}`);
     }
+  };
+
+  bot.on('text', async (ctx) => {
+    await processMessage(ctx, ctx.message.text);
   });
 
   // Handle Voice/Photo
@@ -248,7 +250,16 @@ module.exports = async (req, res) => {
     const fileLink = await bot.telegram.getFileLink(ctx.message.voice.file_id);
     const response = await fetch(fileLink);
     const base64Data = Buffer.from(await response.arrayBuffer()).toString('base64');
-    await handleMultimodal(ctx, 'audio/ogg', base64Data);
+    
+    await ctx.reply("🎙️ Processing voice message...");
+    
+    const result = await model.generateContent([
+      { text: "Transcribe this audio accurately. Return ONLY the transcription." },
+      { inlineData: { data: base64Data, mimeType: 'audio/ogg' } }
+    ]);
+    const text = result.response.text();
+    
+    await processMessage(ctx, text);
   });
 
   bot.on('photo', async (ctx) => {
