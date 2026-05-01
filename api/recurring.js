@@ -3,6 +3,7 @@ const { JWT } = require('google-auth-library');
 const { Telegraf } = require('telegraf');
 
 module.exports = async (req, res) => {
+  console.log('Request Headers:', JSON.stringify(req.headers, null, 2));
   const isCron = req.headers['x-vercel-cron'] === '1';
   const isTest = req.query && req.query.test === 'true';
 
