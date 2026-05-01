@@ -4,7 +4,7 @@ const { Telegraf } = require('telegraf');
 
 module.exports = async (req, res) => {
   console.log('Request Headers:', JSON.stringify(req.headers, null, 2));
-  const isCron = req.headers['x-vercel-cron'] === '1';
+  const isCron = req.headers['x-vercel-cron'] === '1' || req.headers['user-agent'] === 'vercel-cron/1.0';
   const isTest = req.query && req.query.test === 'true';
 
   if (!isCron && !isTest) {
